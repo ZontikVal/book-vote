@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book Vote - Выбор книги</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header { background: #667eea; color: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
+    .content { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    button { background: #667eea; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+    input, select { padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: 100%; margin-bottom: 10px; }
+    .book-card { background: #f9f9f9; padding: 15px; border: 1px solid #eee; border-radius: 5px; margin-bottom: 10px; }
+    .vote-btn { background: #eee; border: 1px solid #ddd; padding: 8px 12px; border-radius: 3px; cursor: pointer; margin: 5px 2px; }
+    .vote-btn.active { background: #667eea; color: white; }
+    .score { font-weight: bold; color: #667eea; font-size: 18px; }
+    .ranking-item { padding: 15px; background: #f0f4ff; margin: 10px 0; border-left: 4px solid #667eea; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Book Vote</h1>
+      <p>Система голосования за выбор книги для клуба</p>
+      <button onclick="addUser()">Добавить пользователя</button>
+      <button onclick="loadUsers()">Загрузить пользователей</button>
+    </header>
+
+    <div class="content">
+      <div class="panel">
+        <h3>Предложить книгу</h3>
+        <form onsubmit="addBook(event)">
+          <input type="text" id="bookTitle" placeholder="Название" required>
+          <input type="text" id="bookAuthor" placeholder="Автор" required>
+          <input type="number" id="bookPages" placeholder="Страниц">
+          <input type="text" id="bookGenre" placeholder="Жанр">
+          <input type="number" id="bookYear" placeholder="Год издания">
+          <input type="number" id="bookSeries" placeholder="Номер в серии">
+          <select id="userId">
+            <option value="">Выберите пользователя</option>
+          </select>
+          <button type="submit" class="button-success">Добавить книгу</button>
+        </form>
+        <div id="bookErrors"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Текущие голоса</h3>
+        <div id="booksList" class="book-list"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Рейтинг книг</h3>
+      <div id="ranking"></div>
+    </div>
+  </div>
+
+  <script>
+    let currentUserId = null;
+    let books = [];
+    let users = [];
+
+    // Load users on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      loadUsers();
+      loadBooks();
+    });
+
+    async function addUser() {
+      const name = prompt('Введите имя пользователя');
+      if (!name) return;
+      
+      const email = prompt('Введите email');
+      if (!email) return;
+      
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, role: 'member' })
+      });
+      
+      if (response.ok) {
+        alert('Пользователь добавлен!');
+        loadUsers();
+      }
+    }
+
+    async function loadUsers() {
+      const response = await fetch('/api/users');
+      users = await response.json();
+      
+      const select = document.getElementById('userId');
+      select.innerHTML = '<option value="">Выберите пользователя</option>';
+      users.forEach(user => {
+        const option = document.createElement('option');
+        option.value = user.id;
+        option.textContent = user.name;
+        select.appendChild(option);
+      });
+    }
+
+    async function addBook(event) {
+      event.preventDefault();
+      
+      const userId = document.getElementById('userId').value;
+      if (!userId) {
+        alert('Выберите пользователя!');
+        return;
+      }
+
+      const bookData = {
+        title: document.getElementById('bookTitle').value,
+        author: document.getElementById('bookAuthor').value,
+        pages: parseInt(document.getElementById('bookPages').value) || 0,
+        genre: document.getElementById('bookGenre').value,
+        publication_year: parseInt(document.getElementById('bookYear').value) || new Date().getFullYear(),
+        series_order: parseInt(document.getElementById('bookSeries').value) || 0,
+        proposed_by: parseInt(userId)
+      };
+      
+      const response = await fetch('/api/books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bookData)
+      });
+      
+      if (response.ok) {
+        document.getElementById('bookTitle').value = '';
+        document.getElementById('bookAuthor').value = '';
+        document.getElementById('bookPages').value = '';
+        document.getElementById('bookGenre').value = '';
+        document.getElementById('bookYear').value = '';
+        document.getElementById('bookSeries').value = '';
+        loadBooks();
+      } else {
+        alert('Ошибка при добавлении книги');
+      }
+    }
+
+    async function loadBooks() {
+      const response = await fetch('/api/books');
+      books = await response.json();
+      displayBooks();
+      displayRanking();
+    }
+
+    function displayBooks() {
+      const booksList = document.getElementById('booksList');
+      booksList.innerHTML = '';
+      
+      if (books.length === 0) {
+        booksList.innerHTML = '<p>Нет книг для голосования</p>';
+        return;
+      }
+      
+      books.forEach(book => {
+        const card = document.createElement('div');
+        card.className = 'book-card';
+        card.innerHTML = `
+          <div class="book-title">${book.title}</div>
+          <div class="book-author">${book.author}</div>
+          <div style="font-size: 12px; color: #999;">
+            Предложил: ${book.proposed_by_name || 'Не известно'}
+          </div>
+          <div style="margin: 10px 0; font-size: 12px; color: #999;">
+            Страниц: ${book.pages || 'Не специфицировано'} | Год: ${book.publication_year || '-'}
+          </div>
+          <div class="vote-buttons">
+            <button class="vote-btn negative" onclick="vote(${book.id}, -2)">--</button>
+            <button class="vote-btn negative" onclick="vote(${book.id}, -1)">-</button>
+            <button class="vote-btn" onclick="vote(${book.id}, 0)">О</button>
+            <button class="vote-btn positive" onclick="vote(${book.id}, 1)">+</button>
+            <button class="vote-btn positive" onclick="vote(${book.id}, 2)">++</button>
+          </div>
+        `;
+        booksList.appendChild(card);
+      });
+    }
+
+    async function vote(bookId, voteValue) {
+      // Get random user for demo (in real app would use current user)
+      const userId = users.length > 0 ? users[0].id : 1;
+      
+      const response = await fetch('/api/votes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ book_id: bookId, user_id: userId, vote_value: voteValue })
+      });
+      
+      if (response.ok) {
+        loadBooks();
+      }
+    }
+
+    async function displayRanking() {
+      const response = await fetch('/api/books/ranking/1');
+      const rankedBooks = await response.json();
+      
+      const rankingDiv = document.getElementById('ranking');
+      rankingDiv.innerHTML = '';
+      
+      if (rankedBooks.length === 0) {
+        rankingDiv.innerHTML = '<p>Нет книг</p>';
+        return;
+      }
+      
+      rankedBooks.forEach((book, index) => {
+        const item = document.createElement('div');
+        item.className = 'ranking-item';
+        item.innerHTML = `
+          <strong style="font-size: 24px; color: #667eea; margin-right: 15px;">${index + 1}.</strong>
+          <div style="display: inline-block;">
+            <div style="font-weight: bold;">${book.title}</div>
+            <div style="font-size: 12px; color: #666;">Автор: ${book.author}</div>
+            <div style="font-size: 12px; color: #999;">Голосов получено: ${book.vote_count || 0}</div>
+          </div>
+          <div style="float: right; font-size: 24px; font-weight: bold; color: #667eea;">${book.score || 0}</div>
+        `;
+        rankingDiv.appendChild(item);
+      });
+    }
+  </script>
+</body>
+</html>
